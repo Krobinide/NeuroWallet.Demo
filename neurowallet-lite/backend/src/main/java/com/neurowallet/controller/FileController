@@ -1,0 +1,108 @@
+package com.neurowallet.controller;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/files")
+@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.OPTIONS})
+public class FileController {
+    
+    private static final Logger logger = LoggerFactory.getLogger(FileController.class);
+    private static final String UPLOAD_DIR = "uploads/profile-images/";
+    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    
+    @PostMapping("/upload")
+    public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file,
+                                         Authentication authentication) {
+        try {
+            logger.info("File upload request from user: {}", authentication.getName());
+            
+            if (file.isEmpty()) {
+                logger.warn("Empty file upload attempt");
+                return ResponseEntity.badRequest().body(Map.of("error", "Please select a file"));
+            }
+            
+            // Check file size
+            if (file.getSize() > MAX_FILE_SIZE) {
+                logger.warn("File too large: {} bytes", file.getSize());
+                return ResponseEntity.badRequest().body(Map.of("error", "File size exceeds 10MB limit"));
+            }
+            
+            // Validate file type
+            String contentType = file.getContentType();
+            logger.info("File content type: {}", contentType);
+            if (contentType == null || !contentType.startsWith("image/")) {
+                logger.warn("Invalid file type: {}", contentType);
+                return ResponseEntity.badRequest().body(Map.of("error", "Only image files are allowed"));
+            }
+            
+            // Create upload directory if it doesn't exist
+            Path uploadPath = Paths.get(UPLOAD_DIR);
+            if (!Files.exists(uploadPath)) {
+                Files.createDirectories(uploadPath);
+                logger.info("Created upload directory: {}", UPLOAD_DIR);
+            }
+            
+            // Generate unique filename
+            String originalFilename = file.getOriginalFilename();
+            String fileExtension = originalFilename != null && originalFilename.contains(".") ? 
+                originalFilename.substring(originalFilename.lastIndexOf(".")) : ".jpg";
+            String newFilename = UUID.randomUUID().toString() + fileExtension;
+            
+            // Save file
+            Path filePath = uploadPath.resolve(newFilename);
+            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+            
+            logger.info("File uploaded successfully: {} by user: {}", 
+                       newFilename, authentication.getName());
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("filename", newFilename);
+            response.put("url", "/api/files/" + newFilename);
+            response.put("message", "File uploaded successfully");
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (IOException e) {
+            logger.error("File upload failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to upload file: " + e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Unexpected error during file upload: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", "Unexpected error: " + e.getMessage()));
+        }
+    }
+    
+    @GetMapping("/{filename}")
+    public ResponseEntity<?> getFile(@PathVariable String filename) {
+        try {
+            Path filePath = Paths.get(UPLOAD_DIR).resolve(filename);
+            if (!Files.exists(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            byte[] fileContent = Files.readAllBytes(filePath);
+            return ResponseEntity.ok()
+                .header("Content-Type", Files.probeContentType(filePath))
+                .body(fileContent);
+                
+        } catch (IOException e) {
+            logger.error("File retrieval failed: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", "Failed to retrieve file"));
+        }
+    }
+}
