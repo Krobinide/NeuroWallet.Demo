@@ -35,7 +35,6 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
         
-        <!-- COMMIT 2: Add security dependencies - 2024-12-01 14:30:00 -->
         <!-- Spring Security -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
